@@ -1,0 +1,1323 @@
+/* Some of this code is based off of code provided in labs and so does not belong to me. Hashmap is an example of this */
+
+/**
+ *
+      In this file, I am required to store all the users that a given user follows. The data structure also needs to be suitable for adding more users.
+      I am also required to return all the users that follow a particular person, and the only way to do this, is to search all other users set of followers,
+      and determine whether the given user is a part of that set. By implementing a binary tree, it is will be very quick to search a user and determine whether
+      they follow the given user, and this will only take o(log n) time. An implementation of a linked list would require n time, and so be very slow with large
+      amounts of users.
+      There was an alternate approach whereby you store for each user two arrays: all of the people they follow and everyone that follows them, but this comes
+      with massive memory overheads and essentially store every relationship twice. For large numbers of relationships between users, this will be a significant
+      portion of duplicate memory, and so I have opted to create the binary trees and go for the approach that saves memory, at the cost of extra computation.
+
+      Each user will have the people they followed stored in a binary tree. This means that there will be a binary tree for every user (which is no more
+      memory inefficient than storing this all in a list, as binary tree only occupy sufficient memory to store all their values). However, to access these
+      we need some sort of map. Therefore, I used the hash table we were given in the labs to allow me to take a user id, go to that location in the hashmap, and
+      retrieve the root node. From this therefore I can search the tree, and make ammendments as necessary.
+
+      However, the order in which elements are entered into a binary tree can affect how quickly it is to search. With an application such as Witter, new users
+      are added all the time. This means that their user ID's will be greater than those who were on the site at an earlier time. This means that say a user with ID
+      20 was the first into the list, newer users (with IDs such as 400 or 500) will ALWAYS be on the right, and so the tree is heavily unbalanced, and so searching
+      takes longer. That is why I decided to create a balanced binary tree. The binary tree classes I used here were from the labs, but I implemented my own
+      re balancing functions, to speed up the time of traversal. Although requiring extra computation, each binary tree will be searched by every other user at some
+      point or another, and so even an extra two or three searches is multiplied through.
+      To avoid a serious dent in computational power, I only rearranged after a set number of insertions had occurred. In this instance that was 2 (as the trees
+      would be quite small), but this could be changed for larger trees with larger date sets.
+
+      Like both the previous classes before, I utilised a quicksort to sort the arrays by date before returning them. This is quicker than other sorts search as
+      insertion, and has a smaller space complexity than mergesort, while still maintaining a time complexity of o(nlogn).
+
+      For the getTopUsers function, I had to store the number of followers every user had, rank these in descending order, and then when there were clashes, I had
+      to sort by date. This was similar to the trending method in Weet store, and so the only way I could store all this information easily was to likewise
+      create a Triple object, and store the user id, the number of followers, and the most recent date someone had followed them.
+      I used a linked list to store the data for this method for a number of reasons:
+          1) A linked list stores all the data, but with no additional memory overheads. This means there is no redundant or wasted memory
+          2) A linked list is easy to rearrange, as you simply have to readjust the pointers. This is especially privalent when with every follower relation
+          on the site, one of the nodes will have its value incremented. This means that every relation has the ability to upset the order, and so the data structure
+          will need to recognise and deal with this. Using an array for example would require a large amount of shuffling and re-ordering which would vastly consume
+          computational power.
+
+ *
+ * @author: Your university ID
+ */
+
+package uk.ac.warwick.java.cs126.services;
+
+import uk.ac.warwick.java.cs126.models.Weet;
+import uk.ac.warwick.java.cs126.models.User;
+
+import java.util.Date;
+
+
+public class FollowerStore implements IFollowerStore {
+
+    private HashMap hashTable = new HashMap();
+    private int size =0;
+    protected int searchIndex=0;
+
+    public FollowerStore() {
+    }
+
+    // Adds a new follower relation to the table
+    public boolean addFollower(int uid1, int uid2, Date followDate) {
+      // There are a number of options we need to consider here:
+      //  1) The user does not exist yet, and so we need to create a binary tree for them
+      //  2) The relationship already exists and so should not be added again
+
+      // We need to see if the user is already in the table
+      // Get returns null if there is no element with the key 'key' in the tablefile:///dcs/18/u1803273/cs126/Witter/FollowerStore.java
+      if (hashTable.get(uid1)==null){
+        // Creates a new entry in the hash table. The user 1 id becomes the key, and the value is the pointer to the newly instantiated binary tree.
+        // Initially I had placed the root node of the tree as the value, but it is not possible to do entire tree operations when working with just the root
+        hashTable.add(uid1, new BinaryTree());
+        // Now we want to add the date, so we need to get the binary tree from the hashtable to operate on
+        BinaryTree tree = (BinaryTree) hashTable.get(uid1);
+        // Creates the pair to be stored in the binary tree
+        Pair pair = new Pair(uid2, followDate);
+        // Add the pair
+        tree.add(pair);
+        //tree.traversal();
+      }
+      // In this case, the user is already in the table, and so we need to check whether the relationship exists
+      else {
+        // Gets the binary tree to operate on
+        BinaryTree tree = (BinaryTree) hashTable.get(uid1);
+        // If there is no current relationship then we need to add the new following (getdate returns the date of the following or null if doesnt exist)
+        if (tree.isIn(uid2)==false){
+          // Creates the pair to be stored in the binary tree
+          Pair pair = new Pair(uid2, followDate);
+          // Add the pair
+          tree.add(pair);
+          //tree.traversal();
+        }else{
+          return false;
+        }
+      }
+      size++;
+      return true;
+    }
+
+    // Returns an array of all the users that follow the user with the given id
+    public int[] getFollowers(int uid) {
+        this.searchIndex=0;
+        // We need to go through every user, access their binary tree and run the getId method
+        // The locations we need to check will be stored in the array locations
+        int [] locations = hashTable.getArray();
+        // Stores all the pairs, with the user id of the users that follow and the date followed
+        Pair [] pairFollows = new Pair [2];
+        // Keeps track of the next free index in pairFollows
+        int index =0;
+        // i is the index variable for iterating through the array locations
+        int i=0;
+        while (locations[i]!=-1){
+          // Resizes the array if its full
+          if (pairFollows[pairFollows.length -1] !=null){
+            pairFollows = resize(pairFollows);
+          }
+          // We now need to return all the pairs at that location (as multiple users could have hashed
+          // to that one location)
+          KeyValuePair<Integer, BinaryTree> [] pairs = hashTable.returnAll(locations[i]);
+          int k =0;
+          while (k<pairs.length){
+            // Tree holds the pointer to the root node of the binary tree, the value from the key value pair stored in the hash map
+            BinaryTree tree = pairs[k].getValue();
+            // Now we check whether the id is is in the tree at this index
+            if (tree.isIn(uid)==true){
+              // The user at this location follows the inputted user
+              // Therefore we insert the new pair, with the id of the user following, and the date they followed, extracted from the binary tree
+              pairFollows[index] = new Pair (pairs[k].getKey(), tree.getDate(tree.getRoot(), uid));
+              index++;
+            }
+            k++;
+          }
+          i++;
+        }
+        // At this point, pairFollows stores the pairs of the users that are followers
+        // We meed to extract the user ids only
+        QuickSort quickSort = new QuickSort();
+        this.searchIndex=index;
+        pairFollows=shrink(pairFollows);
+        return extractUsers(quickSort.sort(pairFollows, 0, pairFollows.length-1));
+    }
+
+    // Returns an array of all users that the user follows.
+    public int[] getFollows(int uid) {
+        BinaryTree tree = (BinaryTree) hashTable.get(uid);
+        if (tree!=null){
+          int size = tree.getSize();
+          Pair [] users = new Pair [size];
+          users = tree.inOrderUserSorted(tree.getRoot(), users);
+          int [] usersId = extractUsers(users);
+          return usersId;
+        }
+        return null;
+
+
+    }
+
+    // Returns is a user follows the other
+    public boolean isAFollower(int uidFollower, int uidFollows) {
+        BinaryTree tree = (BinaryTree) hashTable.get(uidFollows);
+        return tree.isIn(uidFollower);
+    }
+
+    public int getNumFollowers(int uid) {
+        int [] followers = getFollowers(uid);
+        return followers.length;
+    }
+
+    // Returns an array of all users that follow both users uid1 and uid2
+    public int[] getMutualFollowers(int uid1, int uid2) {
+        this.searchIndex=0;
+        // We go through every location in the linked list
+        int [] locations = hashTable.getArray();
+        Pair [] pairFollows = new Pair [2];
+        // Next free for pairFollows
+        int index =0;
+        // Index variable for locations
+        int i=0;
+        while (locations[i]!=-1){
+          // Resizes the array if its full
+          if (pairFollows[pairFollows.length -1] !=null){
+            pairFollows = resize(pairFollows);
+          }
+          // We now need to return all the pairs at that location (as multiple users could have hashed
+          // to that one location)
+          KeyValuePair<Integer, BinaryTree> [] pairs = hashTable.returnAll(locations[i]);
+          int k =0;
+          while (k<pairs.length){
+            // Tree holds the pointer to the root node of the binary tree, the value from the key value pair stored in the hash map
+            BinaryTree tree = pairs[k].getValue();
+            // Now we check whether this tree follows both the users (and so is a mutual follower)
+            // Know that the isIn method calls the get Date method anyways. If the user follows both people, then we need both dates to compare.
+            // This would result in the tree being traversed four times. Finding the dates now halves this to only two
+            Date date1 = tree.getDate(tree.getRoot(), uid1);
+            Date date2 = tree.getDate(tree.getRoot(), uid2);
+            if (date1!=null && date2!=null){
+              // The user is a mutual follower
+              // Now we get the greatest date
+              Date biggestDate;
+              if (date1.equals(date2)){
+                biggestDate=date1;
+              }
+              else if (date1.after(date2)){
+                biggestDate = date1;
+              }
+              else{
+                biggestDate = date2;
+              }
+
+              // Therefore we insert the new pair, with the id of the user following, and the date they followed, extracted from the binary tree
+              pairFollows[index]= new Pair (pairs[k].getKey(), biggestDate);
+              index++;
+            }
+            k++;
+          }
+          i++;
+        }
+        // Now we extract all the users
+        QuickSort quickSort = new QuickSort();
+        this.searchIndex=index;
+        pairFollows=shrink(pairFollows);
+        return extractUsers(quickSort.sort(pairFollows, 0, pairFollows.length-1));
+
+
+    }
+
+    // Returns an array of all the users that both uid1 and uid2 follow
+    public int[] getMutualFollows(int uid1, int uid2) {
+        this.searchIndex=0;
+        // Creates the array of pairs
+        Pair [] pairs = new Pair [2];
+        // Next free for the pairs array
+        int index =0;
+        // We get the binary trees at hash locations uid1 and uid2
+        BinaryTree tree1 = (BinaryTree) hashTable.get(uid1);
+        BinaryTree tree2 = (BinaryTree) hashTable.get(uid2);
+        // We now have to compare every element in tree 1 and check whether it is in tree 2
+        Pair [] tree1Pairs = tree1.returnUsers();
+        // We will iterate through tree1Pairs and for each check it is in the tree
+        for (int i=0; i<tree1Pairs.length; i++){
+          // Resizes array if necessary
+          if (pairs[pairs.length-1]!=null){
+            pairs = resize(pairs);
+          }
+          tree1Pairs[i].getId();
+          Date dateOf2 = tree2.getDate(tree2.getRoot(), tree1Pairs[i].getId());
+          if (dateOf2 !=null){
+            // The user is in tree 2 as well. Therefore we need to add it to our array
+            // First we calculate the biggets date
+            ////////////////// write this as function as same as prev function //////////////////
+            Date dateOf1 = tree1.getDate(tree1.getRoot(), tree1Pairs[i].getId());
+            Date biggestDate;
+            if (dateOf1.equals(dateOf2)){
+              biggestDate = dateOf1;
+            }
+            else if(dateOf1.after(dateOf2)){
+              biggestDate=dateOf1;
+            }
+            else{
+              biggestDate= dateOf2;
+            }
+            // Now we add the element to our array
+            pairs[index] = new Pair (tree1Pairs[i].getId(), biggestDate);
+            index++;
+          }
+        }
+        // Now we extract all the users
+        QuickSort quickSort = new QuickSort();
+        this.searchIndex=index;
+        pairs=shrink(pairs);
+        return extractUsers(quickSort.sort(pairs, 0, pairs.length-1));
+    }
+
+    // Returns an array of the users with the most followers
+    public int[] getTopUsers() {
+        // Get all locations to check
+        int [] locations = hashTable.getArray();
+        // Stores the triples that will be returned from the tree, and maintains their order as defined on the website
+        TopUsersLinkedList linkedList = new TopUsersLinkedList();
+        int i=0;
+        while (locations[i]!=-1){
+          // Returns all key value pairs at that index of the hash table (pairs of the id of the follower and the root of their tree)
+          KeyValuePair<Integer, BinaryTree> [] pairs = hashTable.returnAll(locations[i]);
+          // We need to go through each element, and retrieve the tree node
+          int j =0;
+          // While there are still pairs to examine
+          while (j<pairs.length){
+            // Tree holds the root node to the binary tree
+            BinaryTree tree = pairs[j].getValue();
+            // Now we have the tree, we need to go through every relation, and then update the values in the linked list
+            // pairs holds every follower relation in the current tree
+            Pair [] relations = tree.returnUsers();
+            // For every element in the array pairs, we need to update our linked list
+            int k =0;
+            while (k<relations.length){
+              // This is the id of the user the current user follows
+              int id = relations[k].getId();
+              // This is the date the relation started
+              Date date = relations[k].getDate();
+              // Updates our linked list
+              linkedList.add(id, date);
+              k++;
+            }
+            j++;
+          }
+
+
+          i++;
+        }
+
+        // Now we get an array of every user in the linked list
+        return linkedList.returnAll();
+
+
+    }
+
+    // This method is used to resize the array. When expanding the array, we would double the size, but this will inevitably
+    // lead to blank spaces at the end. This method copies the elements to an array that perfectly fits the size
+    private Pair [] resize(Pair [] users){
+      Pair [] new_users = new Pair [users.length*2];
+      for (int i=0; i<users.length; i++){
+        new_users[i] = users[i];
+      }
+      return new_users;
+    }
+
+
+    // Takes an input array of pairs and returns an array of ids
+    private int [] extractUsers(Pair [] pairs){
+      int [] users = new int[pairs.length];
+      int i=0;
+      while (i<pairs.length && pairs[i]!=null ){
+        users[i] = pairs[i].getId();
+        i++;
+      }
+      return users;
+    }
+
+    // This is a private method so that other classes cannot access it. This method goes through the array and copies the elements across to a new,
+    // reduced length array. Although it has a time complexity of O(n), there is no other way to perform this action.
+    private Pair [] shrink (Pair [] users_long){
+      // We need to iterate through the array and print only the actual items to the new array
+      //System.out.println("shrink search index: " + this.searchIndex);
+      Pair [] users_short = new Pair [this.searchIndex];
+      for (int i=0; i<this.searchIndex;i++){
+        users_short[i] = users_long[i];
+      }
+      return users_short;
+    }
+
+
+
+    // This function is used for testing, and returns the binary tree so that I can test the rebalancing function.
+    public void rebalanceTree (int id){
+      BinaryTree tree = (BinaryTree) hashTable.get(id);
+      tree.rebalance();
+    }
+
+    public int getSize(int id){
+      BinaryTree tree = (BinaryTree) hashTable.get(id);
+      return tree.getSize();
+    }
+
+
+    // This class is a quick sort
+    class QuickSort {
+      protected Pair [] users;
+
+      // This is an implementation of the quicksort algorithm. It will take an unordered list of users and sort them by their dates.
+      // I chose quicksort over mergesort for its reduced memory requirements, as mergesort has a space complexity of O(2n)
+      public Pair [] sort (Pair [] users, int start, int end ){
+          // While the length of the sublist is still greater than 0
+          if (start<end){
+            // We need to partition the list (partition returns the index of the split point)
+            int split = partition (users, start, end);
+            System.out.println("split "+split);
+            System.out.println("sort 1; start end " + start +" "+ (split-1));
+            sort (users, start, split-1);
+            System.out.println("sort 2; start end " + (split+1) +" "+ end);
+            sort (users, split +1, end);
+          }
+          return users;
+      }
+
+      private int partition (Pair [] users, int start, int end){
+        Pair pivot = users[start];
+        // These are the pointers that will be used to partition the list
+        int leftMark = start + 1;
+        int rightMark = end;
+        // Acts as a boolean flag
+        Boolean done = false;
+        // Used in a lot of conditions, so less power to define once instead of retrieving each time
+        Date date = pivot.getDate();
+        while (done == false ){
+          // We check every element at position leftMark and compare it against the current value in rightMark, until either the pointers cross over,
+          // or the value in leftMark is older than that in RightMark, and so they need to be swapped over.
+          while ((leftMark <= rightMark) && (users[leftMark].getDate().after(date) || users[leftMark].getDate().equals(date) ) ){
+            leftMark ++;
+            System.out.println("leftmarker");
+          }
+          // Now we move the right marker done, until either the pointers swap, or we reach an element more recent than right marker (which will later then need
+          // to be swapped )
+          while ( (rightMark >= leftMark) && (users[rightMark].getDate().before(date))){
+            rightMark --;
+            System.out.println("rightmarker");
+          }
+          // Now either the pointers have crossed over, or we need to swap elements
+          // Checks if pointers have swapped
+          if (rightMark < leftMark){
+            // The pointers have swapped and so the list is ordered
+            done = true;
+            System.out.println("done");
+          }// We need to swap the elements
+          else {
+            //System.out.println("swap");
+            Pair temp = users [leftMark];
+            users [leftMark] = users [rightMark];
+            users [rightMark] = temp;
+          }
+        }
+
+        // Now the list is positioned, but we need to swap the pivot with the element currently at position rightMark (as left marker went to the other
+        //side of left marker, and so holds the last element sequentially that is less than the pivot (the start element))
+        Pair temp = users [start];
+        users[start] = users[rightMark];
+        users[rightMark] = temp;
+        // Return the split point (where all elements to LHS are smaller, and RHS are bigger)
+        return rightMark;
+
+      }
+
+    }
+
+
+
+    /**
+    * An interface for a generic map, from keys of type K to values of type V.
+    */
+    interface IMap<K,V> {
+
+        // Adds a mapping from key to value to the map
+        public void add(K key, V value);
+
+        // Finds the respective value that is mapped to from key
+        public V get(K key);
+
+
+    }
+
+    @SuppressWarnings("unchecked")
+    class HashMap<K extends Comparable<K>,V> implements IMap<K,V> {
+
+        protected KeyValuePairLinkedList[] table;
+        // This stores a list of the hash locations that actually have values stored at them, thus reducing the time it takes to search
+        protected int [] locations;
+        // Stores the index of the next free element to locations
+        private int i =0;
+
+        public HashMap() {
+            /* for very simple hashing, primes reduce collisions */
+            // Choosing 199 as this is large and prime. If to be scaled up to 500,000 users, we would need a drastically larger table
+            this(199);
+        }
+
+        public HashMap(int size) {
+            table = new KeyValuePairLinkedList[size];
+            initTable();
+            // This initialises all elements in the array to -1 (which will act as the null value)
+            locations = new int[table.length];
+            for (int i=0; i<locations.length; i++){
+              locations[i]=-1;
+            }
+        }
+
+        protected void initTable() {
+            for(int i = 0; i < table.length; i++) {
+                table[i] = new KeyValuePairLinkedList<>();
+            }
+        }
+
+        protected int hash(K key) {
+            int code = key.hashCode();
+            return code;
+        }
+
+        public int mod(K key){
+          return key.hashCode() % table.length;
+        }
+
+        // Returns whether an element is in the array or not
+        public boolean isElement(int location){
+          for (int i=0; i<locations.length; i++){
+            // The element is part of the array
+            if (locations[i]==location){
+              return true;
+            }
+          }
+          return false;
+        }
+
+        public void add(K key, V value) {
+            int hash_code = hash(key);
+            int location = hash_code % table.length;
+            // We need to add the new location to the array locations unless its already in there
+            boolean result = isElement(location);
+            // The element is not in the array
+            if (result == false){
+              locations[this.i]=location;
+              this.i++;
+            }
+
+            //System.out.println("Adding " + value + " under key " + key + " at location " + location);
+
+            table[location].add(key,value);
+        }
+
+        public int getSize(){
+          return table.length;
+        }
+
+        // Returns the array locations
+        public int[] getArray(){
+          return this.locations;
+        }
+
+        public V get(K key) {
+          // Gets the hash of the key
+            int hash_code = hash(key);
+            // Location points to the element in the table that the key pointed to (this element is a linked list)
+            int location = hash_code % table.length;
+
+            // ptr stores the first element of the linked list
+            ListElement<KeyValuePair> ptr = table[location].head;
+
+            // table location is the linked list
+            // .get(key) goes through the linked list until the key is reached
+            // Returns the key value pair with the correct key
+            // getValue returns the value from the K,V pair
+            // return (V)table[location].get(key).getValue();
+
+            // This returns the list element of the linked list with the key
+            KeyValuePair value = table[location].get(key);
+            // If this is null, then there is no element.
+            if (value==null){
+              return null;
+            }else{
+              return (V)value.getValue();
+            }
+        }
+
+        public KeyValuePair<Integer, BinaryTree> [] returnAll (int location){
+          // We need to return all users at location, and so need an array pf length users[location]
+          return table[location].returnAtLocation();
+
+        }
+
+
+
+    }
+
+
+    class KeyValuePairLinkedList<K extends Comparable<K>,V> {
+
+        protected ListElement<KeyValuePair<K,V>> head;
+        protected int size;
+
+        public KeyValuePairLinkedList() {
+            head = null;
+            size = 0;
+        }
+
+        public void add(K key, V value) {
+            this.add(new KeyValuePair<K,V>(key,value));
+        }
+
+        public void add(KeyValuePair<K,V> kvp) {
+            ListElement<KeyValuePair<K,V>> new_element =
+                    new ListElement<>(kvp);
+            new_element.setNext(head);
+            head = new_element;
+            this.size++;
+        }
+
+        public int size() {
+            return this.size;
+        }
+
+        public ListElement<KeyValuePair<K,V>> getHead() {
+            return head;
+        }
+
+        public KeyValuePair<K,V> get(K key) {
+            ListElement<KeyValuePair<K,V>> temp = head;
+            // temp is an element of the list (or a member of the list element class)
+            // therefore, temp.getvalue returns the value of the linked list element (or the KV pair, not the value of this pair, the entire pair itself)
+            // THEN getKey gets the key from the pair
+            while(temp != null) {
+                if(temp.getValue().getKey().equals(key)) {
+                    return temp.getValue();
+                }
+
+                temp = temp.getNext();
+            }
+
+            return null;
+        }
+
+        public KeyValuePair<Integer, BinaryTree> [] returnAtLocation(){
+          ListElement<KeyValuePair<K,V>> temp = head;
+          KeyValuePair<Integer, BinaryTree> [] pairs = new KeyValuePair [size()];
+          int i =0;
+          while(temp != null) {
+              pairs [i] = (KeyValuePair<Integer,BinaryTree>)temp.getValue();
+              i++;
+              temp = temp.getNext();
+          }
+
+          return pairs;
+        }
+
+
+    }
+
+
+
+    class ListElement<E> {
+        private final E value;
+        private ListElement<E> next;
+        private ListElement<E> prev;
+
+        public ListElement(E value) {
+            this.value = value;
+        }
+
+        public E getValue() {
+            return this.value;
+        }
+
+        public ListElement<E> getNext() {
+            return this.next;
+        }
+
+        public ListElement<E> getPrev() {
+            return this.prev;
+        }
+
+        public void setNext(ListElement<E> e) {
+            this.next = e;
+        }
+
+        public void setPrev(ListElement<E> e) {
+            this.prev = e;
+        }
+
+    }
+
+
+
+    class KeyValuePair<K extends Comparable<K>,V> implements Comparable<KeyValuePair<K,V>> {
+
+        protected K key;
+        protected V value;
+        //protected User value;
+
+        public KeyValuePair(K k, V v) {
+            key = k;
+            value = v;
+        }
+
+        public K getKey() {
+            return key;
+        }
+
+        public V getValue() {
+            return value;
+        }
+
+        public int compareTo(KeyValuePair<K,V> o) {
+            return o.getKey().compareTo(this.getKey());
+        }
+    }
+
+    /*
+      In the class BinaryTree I created a variable called biggestDate that stored the largest date inserted into the tree
+      This is because certain functions (such as TopUsers) in the FollowerStore class required access to this information, and it is far more
+      efficient to save it in a variable than spend computational power retraversing the tree everytime it is needed
+    */
+
+    public class BinaryTree{
+        BinaryTreeNode<Pair> root;
+        // Keeps track of how often we need to rebalance our tree. Set to a negative number to allow elements to be added before restructuring for the first time
+        int count =-1;
+        int size =0;
+        int index =0;
+        Date biggestDate;
+
+        public BinaryTree() {
+            root = null;
+        }
+
+        // This method is used to rebalance the tree
+        public void rebalance(){
+          // Firstly, we take the elements of the existing tree and store them in an array in ascending order
+          // This can be achieved by an inorder traversal
+          this.index =0;
+          BinaryTreeNode <Pair> [] nodes = new BinaryTreeNode [this.size];
+          //    System.out.println("size"+this.size);
+          nodes = inOrderArray(this.root, nodes);
+          //System.out.println("");
+          //printArray(nodes);
+          //    System.out.println("");
+          // Now we have a list of all nodes in ascending order. We pick the middle element to now be our root node (to balance the tree as best as we can)
+          int midIndex = (int) Math.floor(nodes.length / 2);
+          BinaryTreeNode<Pair> new_root = nodes [midIndex];
+          // Set the new root as the root of the tree
+          root = new_root;
+          // Now we need to insert the other items, but in a way that maintains balance. We will use recursion, and pick the middle point of the sublist
+          // created after each insertion
+          // We create a subarray of only the LHS elements to pass into the recursive call
+          BinaryTreeNode<Pair> [] nodesLeft = subList(nodes, 0, midIndex-1);
+          //System.out.println("nodesleft");
+          //printArray(nodesLeft);
+          if (nodesLeft.length>0){
+            // Now we work out the midIndex of the new sub list
+            int midIndexLeft =  (int) Math.floor(nodesLeft.length / 2);
+            this.root.setLeft(insertNodes(nodesLeft[midIndexLeft], nodesLeft));
+          }
+          //Now we work out the right pointer
+          // We create a subarray of only the RHS elements to pass into the recursive call
+          BinaryTreeNode<Pair> [] nodesRight = subList(nodes, midIndex + 1, nodes.length-1);
+          if (nodesRight.length>0){
+            // Now we work out the midIndex of the new sub list
+            int midIndexRight =  (int) Math.floor(nodesRight.length / 2);
+            this.root.setRight(insertNodes(nodesRight[midIndexRight], nodesRight));
+          }
+        }
+
+        // Returns the most recent date of any relationship in the tree
+        public Date getBiggestDate(){
+          return biggestDate;
+        }
+
+        // Takes the current date and compares it with the existing biggest date and updates it if necessary
+        public void checkBiggestDate(Date date){
+          // Checks the biggets date with the new date
+          if (date.after(biggestDate)){
+            this.biggestDate = date;
+          }
+
+        }
+
+        // Adds the element to the subtree of the existing tree (is a recursive method)
+        private void addToSubTree(BinaryTreeNode<Pair> n, Pair v) {
+            if (n!=null) // sanity check!
+            {
+                // Gets the value from the node
+                int nValue = n.getValue().getId();
+                // Gets the value from the node we are wanting to add
+                int vValue = v.getId();
+                if (vValue < nValue) {
+                    //System.out.println("Adding "+v+" to left sub-tree of "+nValue);
+                    if (n.getLeft()==null){
+                        n.setLeft(new BinaryTreeNode<>(v));
+                        size++;
+                        count++;
+                        checkBiggestDate(v.getDate());
+                        if (count==2){
+                          rebalance();
+                          this.count=0;
+                        }
+                    }else{
+                        addToSubTree(n.getLeft(), v);
+                      }
+                }
+                else {
+                    //System.out.println("Adding "+v+" to right sub-tree of "+nValue);
+                    if (n.getRight()==null){
+                        n.setRight(new BinaryTreeNode<>(v));
+                        size++;
+                        count++;
+                        checkBiggestDate(v.getDate());
+                        if (count==2){
+                          rebalance();
+                          this.count=0;
+                        }
+                    }else{
+                        addToSubTree(n.getRight(), v);
+                      }
+                }
+
+            }
+        }
+
+        // Adds an element to the tree
+        public void add(Pair v) {
+            if (root==null) {
+                //System.out.println("Adding "+v+" to root.");
+                root = new BinaryTreeNode<>(v);
+                size++;
+                count++;
+                biggestDate=v.getDate();
+                if (count==2){
+                  rebalance();
+                  this.count=0;
+                }
+            }
+            else
+                addToSubTree(root, v);
+        }
+
+        // This method returns the root of the tree
+        public BinaryTreeNode<Pair> getRoot(){
+          return root;
+        }
+
+        // Returns the number of nodes in the tree
+        public int getSize(){
+          return size;
+        }
+
+        // Returns true if the id is in the tree, false if not
+        public Boolean isIn(int id){
+          BinaryTreeNode<Pair> temp = root;
+          if (getDate(temp, id)!=null){
+            return true;
+          }else{
+            return false;
+          }
+        }
+
+        // Returns the date that the user of 'id' followed the user who's tree it is
+        public Date getDate(BinaryTreeNode<Pair> temp, int id){
+          if (temp.getValue().getId()==id){
+            return temp.getValue().getDate();
+          }else{
+            if (id<temp.getValue().getId()){
+              // We need to explore the LHS of the binary tree
+              if (temp.getLeft()==null){
+                // There are no more left nodes but the id we're searching for is less than the smallest
+                // Therefore not in list
+                return null;
+              }else{
+                return getDate (temp.getLeft(), id);
+              }
+            }
+            else{
+              // The id is bigger than the current node so we need to explore the RHS
+              if (temp.getRight()==null){
+                // Not in tree
+                return null;
+              }else{
+                return getDate (temp.getRight(), id);
+              }
+            }
+
+          }
+          //return null;
+        }
+
+
+        // Returns an array of indexes base to top inclusive from a given input array
+        private BinaryTreeNode<Pair> [] subList(BinaryTreeNode<Pair> [] nodes, int base, int top){
+          BinaryTreeNode<Pair> [] newList =  new BinaryTreeNode[(top-base) +1];
+          int j =0;
+          for (int i = base; i<= top; i++){
+            newList[j] = nodes [i];
+            j++;
+          }
+          return newList;
+        }
+
+        // This function will be recursively called, and with each time, on a smaller subtree
+        // The root parameter therefore will act as the root of each subtree
+        // The nodes parameter holds the nodes within that sublist
+        private BinaryTreeNode<Pair>  insertNodes (BinaryTreeNode<Pair> root, BinaryTreeNode<Pair> [] nodes){
+          // If the list is of length 1, then we have reached our base case and need to unwind
+          if (nodes.length !=1){
+              // Works out the middle ( or the index of the current root in the sublist)
+              int midIndex = (int) Math.floor(nodes.length/2);
+              // Work out the LHS sublist
+              BinaryTreeNode<Pair> [] nodesLeft = subList(nodes, 0, midIndex-1);
+              if (nodesLeft.length>0){
+                //System.out.println("lhs");
+                //printArray(nodesLeft);
+                // Now we work out the index of the new root to be passed into the recursive call
+                int midIndexLeft = (int) Math.floor(nodesLeft.length/2);
+                //System.out.println("new root:" + nodesLeft[midIndexLeft].getValue().getId());
+                root.setLeft(insertNodes(nodesLeft[midIndexLeft],nodesLeft));
+                //System.out.println("root left pointer: " + root.getLeft().getValue().getId());
+              }
+              // Works out the RHS sublist
+              BinaryTreeNode<Pair> [] nodesRight = subList(nodes, midIndex+1, nodes.length-1);
+              if (nodesRight.length>0){
+                //System.out.println("Rhs");
+                //printArray(nodesRight);
+                // Now we work out the index of the new root to be passed into the recursive call
+                int midIndexRight = (int) Math.floor(nodesRight.length/2);
+                //System.out.println("new root:" + nodesRight[midIndexRight].getValue().getId());
+                root.setRight(insertNodes(nodesRight[midIndexRight], nodesRight));
+                //System.out.println("root right pointer: " + root.getRight().getValue().getId());
+              }else{
+                // The sublists length is 0. This means that the root has a values to the left, but not the right
+                // THis happens with a sublist [2,3] say. 3 is set to root, 2 becomes lhs sublist but there will be no right handside
+                root.setRight(null);
+              }
+          }else{
+            // The item is now a leaf node. Therefore it will have exisitng pointers, and so we need to set these to null
+            root.setLeft(null);
+            root.setRight(null);
+          }
+          // Returns the root, now with the pointers all worked out if need be
+          return root;
+        }
+
+        private BinaryTreeNode<Pair> [] inOrderArray (BinaryTreeNode<Pair> n, BinaryTreeNode<Pair> [] nodes ){
+          if (n!=null) {
+              nodes = inOrderArray(n.getLeft(), nodes);
+              // Adds the pair at that node to the array
+              if (n.getLeft()!=null){
+                System.out.println(n.getLeft().getValue().getId() + "<- left ");
+              }
+              if (n.getRight()!=null){
+                System.out.println(n.getRight().getValue().getId() + "right -> ");
+              }
+              System.out.println(n.getValue().getId() + " index: " + this.index);
+              nodes[this.index] = n;
+              this.index ++;
+              nodes = inOrderArray(n.getRight(), nodes);
+          }
+          return nodes;
+
+        }
+
+        /*private BinaryTreeNode<Pair> [] preOrderArray (BinaryTreeNode<Pair> n, BinaryTreeNode<Pair> [] nodes ){
+          //System.out.println(n);
+          if (n!=null) {
+              // Adds the pair at that node to the array
+              nodes[this.index] = n;
+              this.index ++;
+              nodes = preOrderArray(n.getLeft(), nodes);
+              nodes = preOrderArray(n.getRight(), nodes);
+          }
+          return nodes;
+        }*/
+
+        // Goes through the binary tree and returns all the users ordered by their date
+        public Pair [] inOrderUserSorted (BinaryTreeNode<Pair> n, Pair [] nodes ){
+          if (n!=null) {
+              nodes = inOrderUserSorted(n.getLeft(), nodes);
+              // Adds the pair at that node to the array
+              nodes = insert(nodes, n.getValue());
+              nodes = inOrderUserSorted(n.getRight(), nodes);
+          }
+          return nodes;
+        }
+
+        // Inserts a new pair into the array, and returns the updated array sorted in date order
+        public Pair[] insert(Pair [] pairs, Pair new_pair){
+            // The method getDate returns the date the user followed the followee
+            Date date = new_pair.getDate();
+            int i =0;
+            while (pairs[i]!=null){
+              // Compares the date of the object to be inserted with that of the date of the follower at that index
+              if (date.after(pairs[i].getDate())){
+                // The new date is smaller than the date at i (therefore is inserted to this index)
+                break;
+              }
+              i++;
+            }
+            // Now i stores the index to insert the new item. But we need to shuffle the rest of the items along
+            Pair temp = new_pair;
+            // This while loop iterates until either an element becomes null (and so the end of the elements are reached)
+            // or the end of the array is reached (and so nothing more needs to be added)
+            Pair temp2 = null;
+            while ( temp != null){
+              // Sets temp2 to the item being replaced
+              temp2 = pairs[i];
+              // Replaces i with the item
+              pairs[i] = temp;
+              // Temp is set to temp2, so that next iteration, temp2 replaces the next index and so on
+              temp = temp2;
+              i++;
+            }
+            return pairs;
+
+        }
+
+        public Pair[] returnUsers (){
+          this.index =0;
+          Pair [] pairs = new Pair [size];
+          pairs = inOrderUser(root, pairs);
+          return pairs;
+        }
+
+        // Goes through the binary tree and returns all users
+        public Pair [] inOrderUser (BinaryTreeNode<Pair> n, Pair [] nodes ){
+          if (n!=null) {
+              nodes = inOrderUser(n.getLeft(), nodes);
+              // Adds the pair at that node to the array
+              nodes[this.index]=n.getValue();
+              this.index++;
+              nodes = inOrderUser(n.getRight(), nodes);
+          }
+          return nodes;
+        }
+
+
+    }
+
+
+    public class BinaryTreeNode<E> {
+
+        private E value;
+        private BinaryTreeNode<E> left;
+        private BinaryTreeNode<E> right;
+
+        public BinaryTreeNode(E val) {
+            value = val;
+            left = null;
+            right = null;
+        }
+
+        public E getValue() {
+            return value;
+        }
+
+        public BinaryTreeNode<E> getLeft() {
+            return left;
+        }
+
+        public BinaryTreeNode<E> getRight() {
+            return right;
+        }
+
+        public void setValue(E v) {
+            value = v;
+        }
+
+        public void setLeft(BinaryTreeNode<E> p) {
+            left = p;
+        }
+
+        public void setRight(BinaryTreeNode<E> p) {
+            right = p;
+        }
+
+    }
+
+
+
+    // Acts as an object to store the user the person is following, and the date
+    class Pair{
+      protected int id;
+      protected Date date;
+
+      public Pair (int idAdd, Date dateAdd){
+        this.id = idAdd;
+        this.date = dateAdd;
+      }
+
+      public int getId(){
+        return this.id;
+      }
+
+      public Date getDate(){
+        return this.date;
+      }
+
+
+
+    }
+
+
+    // This class is used to store all the top users in a linked list
+    // Each element will be a triple, storing the user id, the number of followers, and the greatest date from any of the relations
+
+    // This linked list will be a doubly linked list, as when elements are added, the need to be moved down from the front. As well,
+    // when reading from the linked list, it will read from the biggest to the smallest (therefore need to traverse right).
+    // However, because we're updating the values, we may need to bubble these elements back up the list, and so we need to be able to move
+    // left as well, hence the double pointers
+    class TopUsersLinkedList {
+
+        // Stores the biggest element in the list
+        protected ListElement<Triple> head;
+        // Stores the last element in the list
+        protected ListElement<Triple> tail;
+        protected int size;
+
+        public TopUsersLinkedList(){
+          head = null;
+          tail = null;
+          size =0;
+        }
+
+        // Adds new data to the linked list. If this is a new element, then it is added, else it is updated
+        public void add(int id, Date date){
+          System.out.println("adding element: "+id);
+          // If size is 0, then there are no elements
+          if (this.size ==0){
+            ListElement<Triple> new_element = new ListElement<Triple>(new Triple(id, 1,date));
+            head = new_element;
+            this.size++;
+          }// If the length is >0, then there must be some other elements in the list
+          else {
+            // We need to check whether the element is already in the list, and so we need to simply update the element, or if there is no
+            // current element, and so we need to create one.
+            ListElement <Triple> temp = head;
+            Boolean isIn = false;
+            while (true){
+              // The current element is the user we're trying to find
+              if (temp.getValue().getId()==id){
+                // We need to increment the number of followers they have, and then adjust the pointers if neccessary
+                System.out.println("increment with " + id);
+                increment(temp, date);
+                isIn = true;
+                break;
+              }
+              // We want to keep going until we reach the end of the linked list
+              // However, we want temp to keep pointing to the last element, so we don't set it to getNext unless
+              // we know that there is an element to set it equal to
+              if (temp.getNext()==null){
+                break;
+              }else{
+                temp = temp.getNext();
+              }
+            }
+            // If isIn == False, then we need to add the element
+            if (isIn == false){
+              System.out.println("adding to the end with "+id);
+              // The element needs to be added to the end. The last element in the list is equal to temp
+              ListElement<Triple> new_element = new ListElement<Triple>(new Triple(id, 1, date));
+              // Sets the last element to point to the new one
+              temp.setNext(new_element);
+              // Sets the new element to point to the previous end
+              new_element.setPrev(temp);
+              // Sets tail to point to the new element (as its the end of the list )
+              tail = new_element;
+              this.size++;
+              // Now, it will be equal on number of followers to all others with only one follower.
+              // However, it may have a more recent date, and so needs to be bubbled up
+              moveLeft(new_element);
+            }
+
+          }
+        }
+
+        // This function updates the current linked list element
+        private void increment (ListElement <Triple> element, Date date){
+          // We increment the number of followers
+          element.getValue().increment();
+          // We check the date to see if its bigger
+          element.getValue().compareDates(date);
+
+          // Now we need to readjust our positioning in the linked list
+          moveLeft(element);
+        }
+
+        // This function takes an element and moves it left as far as it can go
+        private void moveLeft (ListElement<Triple> element){
+          //System.out.println("move left");
+          ListElement<Triple> temp = element.getPrev();
+          // First we compare on number of followers
+          while (temp !=null && element.getValue().getFollowers()>temp.getValue().getFollowers() ){
+            // So our current element has more followers than the next one
+            //System.out.println("compare on followers");
+            temp=temp.getPrev();
+          }
+          // Now our element has the same amount of followers as the element at temp
+          // Now we compare on dates (there is however the issue that an element can have less followers than temp, but is bigger than all otherss with the same
+          // number as it. This would mean it breaks out of the top one, but now gets compared on dates, even though it should not be )
+          while (temp!= null && element.getValue().getDate().before(temp.getValue().getDate()) && temp.getValue().getFollowers()==element.getValue().getFollowers() ){
+            // The date of our element is more recent than that of the element at temp
+            temp=temp.getPrev();
+            //System.out.println("compare on date");
+          }
+
+          // Now temp holds the element directly bigger than us, or is null because we have reached the start
+          // of the list.
+
+          // We first check whether we've even advanced
+          if (element.getPrev()!=temp){
+
+              if (temp == null){
+                //System.out.println("add to head ");
+
+                // This adjusts the pointers of the two elements currently on either side of 'element'
+                ListElement<Triple> tempAhead = element.getPrev();
+                ListElement<Triple> tempBehind = element.getNext();
+
+                tempAhead.setNext(tempBehind);
+                // tempBehind can be the last element in the list so can be null
+
+                if (tempBehind!=null){
+                  tempBehind.setPrev(tempAhead);
+                }
+
+                // Then we need to set the new element as the head
+
+                // Sets the previous of the old head to point to our new elem
+                head.setPrev(element);
+
+                // Sets the next pointer to the old front of the list
+                element.setNext(head);
+                // Clears any existing previous pointer
+                element.setPrev(null);
+                // Sets head to our new element
+                head = element;
+              }// The new element is not at the front of the list.
+              else {
+                ///System.out.println("add normally");
+                // We need to adjust the pointers
+                // Temp holds the next biggest. This means we need to insert our element between temp and the next smallest.
+                // However, we THEN need to rearrange the pointers either side of our element, to essentially 'cut' it out, and to ensure there are no duplicates
+
+                // This deals with the elements either side of our current position
+                ListElement<Triple> tempAhead = element.getPrev();
+                ListElement<Triple> tempBehind = element.getNext();
+
+                // By setting them to each other, we cut out our element (who's pointers technically still point to them)
+                tempAhead.setNext(tempBehind);
+                // If last element in list, this is null
+                if (tempBehind != null){
+                  tempBehind.setPrev(tempAhead);
+                }
+
+                // Now we need to insert our element
+                // tempAhead is the bigger element
+                tempAhead = temp;
+                tempBehind = tempAhead.getNext();
+
+                // We insert element between them
+                tempAhead.setNext(element);
+                tempBehind.setPrev(element);
+                element.setPrev(tempAhead);
+                element.setNext(tempBehind);
+              }
+
+              }else{
+                //System.out.println("didn't move");
+              }
+
+        }
+
+        // This returns an array of the users, ordered by the number of their followers
+        public int [] returnAll(){
+          int [] users = new int [this.size];
+          ListElement<Triple> temp = head;
+          int i =0;
+          while (temp!=null){
+            users[i]= temp.getValue().getId();
+            i++;
+            temp=temp.getNext();
+          }
+          return users;
+        }
+
+        public void printAll(){
+          ListElement<Triple> temp = head;
+          int i =0;
+          while (temp!=null){
+            System.out.print("" + temp.getValue().getId()+"(" +temp.getValue().getFollowers() +")");
+            i++;
+            temp=temp.getNext();
+          }
+        }
+    }
+
+    // A slight variant on the object created in weet store, so that it stores the integer id instead of the weet message (or a string)
+    // This is used for the TopUsersLinkedList Class, and each list element is of type Triple
+    class Triple {
+      protected int id;
+      protected int followers;
+      protected Date date;
+
+      Triple(int new_id, int new_followers, Date new_date){
+        this.id = new_id;
+        this.followers = new_followers;
+        this.date = new_date;
+      }
+
+      public int getId(){
+        return id;
+      }
+
+      public int getFollowers(){
+        return followers;
+      }
+
+      public Date getDate(){
+        return date;
+      }
+
+      public void setId(int id){
+        this.id= id;
+      }
+
+      public void setFollowers(int followers){
+        this.followers = followers;
+      }
+
+      public void setDate (Date date){
+        this.date = date;
+      }
+
+      // Increases the number of followers by 1
+      public void increment(){
+        this.followers++;
+      }
+
+      // Compares the new date to the current, and if more recent, replaces it
+      public void compareDates(Date new_date){
+        if (new_date.after(this.date)){
+          this.date = new_date;
+        }
+      }
+
+
+    }
+
+
+
+}
