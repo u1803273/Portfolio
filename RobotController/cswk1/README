@@ -1,0 +1,3 @@
+This was my first coursework. I had to develop a progressively more sophisticated controller, starting with a purely random one.
+I was then tasked to refine it to a homing controller, which knowing where the end goal was, would attempt to find it quicker by 
+heading directly towards it, 'homing' in.
