@@ -1,0 +1,11 @@
+WS 1.0 has a full working solution
+I simplified the code and made it more efficient in this version. I stopped returning square ** from every function,
+broke evaluate boxes up into mutiple sub functions and added updateboxes as a function and called it where applicable.
+I made no attempt at adding extra functionality and did not add any extra code to check for more complex sudoku patterns
+
+i added the update squares box which abstracts away the multiple steps in adding a square to the sudoku
+this function calls updateboxes (as by adding a value you are changing the value of the box and so all squares
+need to point to this new value)
+
+i added do while loops whiole evaluating boxes rows and columns, as adding a number to the sudoku will effect others and may make it
+possible to resolve subsequent squares, and so is more efficient to repeat than wait to a subsequent itteration
