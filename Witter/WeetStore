@@ -1,0 +1,922 @@
+/* Some of this code is based off of code provided in labs and so does not belong to me. Hashmap is an example of this */
+
+/**
+ *    Just like UserStore, I decided upon a hash map implementation.
+      This class searches the weets based on a variety of different factors and so if I were to implement a binary search tree, I would have to create
+      three of them, ordering by ID, weet and message respectively. This means that data would be stored multiple times, and when considering a potentially
+      large number of weets such as a million, storing everything multiple times comes with a massive overhead.
+      In contrary, I decided on a hashmap. Searching by ID has a constant time, and searching by everything else is linear. While this is slower than the
+      log n time complexity a binary tree would provide, its a comprimise I made based on hashing using less memory.
+      I did however try and make it just a little bit quicker by storing an array called locations that only stored the places in the array that had values in
+      them. This meant that for small tables, with two to three elements, only two to three hash locations are checked as oppose to the entire table length.
+
+      In this file I tried to make my code short and less repetitive. Functions getWeets, getWeetsByUser, getWeetsOn, getWeetsBefore and getWeetsContaining
+      were very repetitive in their implementation, and all included a while loop, with varying search criteria the only difference between them.
+      Therefore, to avoid having similar code five times, I implemented a generic loop function, that took an input parameter which determines what the data should
+      be searched on.
+
+      Get trending required me to make an object class called Triple which acts as a three element tuple. This allows me to store information about a weet, such as its hashtag,
+      the number of times the hashtag has been found, and the most recent date it was weeted. Java does not have its own implemntation of a tuple, and so
+      I created my own, just so I could store related weet data together coherently.
+
+      I then created a doubly linked list used to store key value pairs of these Triples. This list would self maintain its order and thus once all weets
+      have been added, it should have the top trending weet at the front, and the least trending at the back. The list also stores all hashtags, so in future
+      implementations, more than the top 10 can be retrieved without needing to alter the code too much.
+      I decided upon making my own linked list as oppose to using the one I had used previously for two reasons:
+        1) Firstly, the existing one had no self sorting methods, and so I would need to write these anyways, and of the methods that were there, I in the end
+        didn't use any of them except add, and this was not difficult to reimplement.
+        2) I initially did use the existing one, and I came into trouble with the generics, as I knew the types of the data I wanted to add as KeyValuePairs but
+        I was simultaneously trying to keep it generic, and this was clashing with existing code. So I created my own linked list, solely for the trending
+        function, and created my own methods for sorting.
+      New items are added to the front, as this is quicker, and then are moved down as far as they need. I initially added to the rear and bubbled up, but if adding
+      close to the front, required almost 2n movements, as I had to take the element down the list just to bring it up again.
+      When a weet with an existing hashtag is added, the existing triple is updated and the trend bubbled up if necessary.
+      As ordered, you simply remove the top ten from the front, which is quick and easy.
+      I chose a linked list over an array, for a number of reasons.
+        1) There were an unknown number of different trends, as I had no idea how mnay times certain trends would repeat, and so I either defined an array to the
+        number of different weets, and then have excess space at the end (which would be incredibly wasteful, especially with extremely large number of weets)
+        or I increase the array each time I need to expand it, which requires a lot of processing power and is again inefficient.
+        2) For an array to be sorted I would need to shuffle elements down, and for large numbers of weets this is a waste of computational power and time. A
+        linked list therefore improves this, as elements are added where they are required, and pointers simply alter the order.
+
+      The code for moving an element up and down the list is very similar, and so instead of having seperate functions that move it up or down as necessary,
+      I combined them into one, with only the condition for the while loop changing. This was an attempt to try and reduce the length of the code I was writing to
+      keep the implemntation as efficient as possible. Overall, I believe I chose the best way to store and order trends, both in its memory efficiency, and
+      in the speed at which elements are added and can very quickly be retrieved.
+
+      Just like in UserStore, I initially had used an insertion sort to maintain the order of weets to be returned from functions such as getWeetsContaining and
+      getWeetsBefore etc. I then created a quicksort to order these elements more efficiently (this is the same case as from userstore). This meant that instead of
+      having an insertion sort of time complexity 0(n^2), I had a quick sort of complexity 0(nlogn) which is far quicker, especially for length data sets.
+      I chose quicksort over mergesort because of its space complexity. Merge sort stores every element twice, whereas quicksort only stores it once, and so is far better
+      in regards to memory. Consequently, I selected quicksort over merge sort for this very reason.
+
+      I created tests for all of the methods implemented, and these can be found in the file WeetTests.java
+
+ *
+ * @author: U1803273
+ */
+
+package uk.ac.warwick.java.cs126.services;
+
+import uk.ac.warwick.java.cs126.models.User;
+import uk.ac.warwick.java.cs126.models.Weet;
+
+import java.io.BufferedReader;
+import java.util.Date;
+import java.io.FileReader;
+import java.text.ParseException;
+import java.io.IOException;
+import java.io.FileNotFoundException;
+import java.io.File;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+
+
+public class WeetStore implements IWeetStore {
+
+    private HashMap hashTable = new HashMap();
+    protected int size = 0;
+    // This variable is used by the search functions and stores the number of elements inserted into the array (regardless of its size)
+    // This is used to shrink the array so there are no empty/null elements
+    protected int searchIndex =0;
+
+    public WeetStore() {
+    }
+
+    public int getSize (){
+      return this.size;
+    }
+
+    // This function adds a new weet to the hashmap
+    public boolean addWeet(Weet weet) {
+      // If already in hashTable, then not added again.
+      if (hashTable.get(weet.getId())!=null){
+        return false;
+      } // As not in the hash table, we add the weet
+      else{
+        hashTable.add(weet.getId(),weet);
+        this.size++;
+        return true;
+      }
+    }
+
+    // This function returns a weet based on its ID
+    public Weet getWeet(int wid) {
+        return (Weet)hashTable.get(wid);
+    }
+
+
+    /*
+     The following functions were incredibly similar in their functionality.
+     They all featured a while loop that iterated through the hash map and returned the value stored there,
+     and if it passed the criteria, then it was added to the array. I then abstracted this into another function
+     that iterated through as before, but depending on the integer input, passed the weet through the corresponding
+     if statement.
+
+     Although the function call is ugly, it is necessary, otherwise there would be almost identical code repeated 5 times.
+    */
+    // Returns an array of all weets
+    public Weet[] getWeets(){
+      return search (null, null,null,1);
+    }
+
+    // Returns an array of all weets by a user
+    public Weet [] getWeetsByUser(User usr){
+      return search (null,null, usr, 2);
+    }
+
+    // Returns an array of all weets containing the substring
+    public Weet[] getWeetsContaining(String query){
+      return search (query, null, null, 3);
+    }
+
+    // Returns all weets on a given date
+    public Weet[] getWeetsOn(Date dateOn) {
+        return search (null, dateOn, null, 4);
+    }
+
+    // Returns an array of all weets from before a given date
+    public Weet[] getWeetsBefore(Date dateBefore){
+      return search (null, dateBefore, null, 5);
+    }
+
+    // Reduces the length of the array (removes all blank spaces at the end)
+    private Weet [] shrink (Weet [] weets_long){
+      // We need to iterate through the array and print only the actual items to the new array
+      Weet [] weets_short = new Weet [this.searchIndex];
+      for (int i=0; i<this.searchIndex;i++){
+        weets_short[i] = weets_long[i];
+      }
+      return weets_short;
+    }
+
+    // Returns the top most trending hashtags
+    public String[] getTrending() {
+        int [] locations = hashTable.getArray();
+        // I need to store the hashtag message, the number of occurrences and the most recent time it was weeted. This could be stored in a
+        // tuple but they lack tuples in Java, and so, I created a class calleed triple to essentially act as a tuple.
+        // This instantiates a linked list. We have to store every single hashtag that was weeted, as although a hashtag may only occur once,
+        // we have no guarantee that the next n weets couldn't all have them as well, and thus could be the most weeted phrase.
+        TrendingLinkedList trending = new TrendingLinkedList();
+        //System.out.println("Linked list was instantiated");
+        int i =0;
+        while (locations[i]!=-1){
+          Weet [] new_weets = hashTable.returnAll(locations[i]);
+          int k =0;
+          while (k<new_weets.length){
+            // We get the message from the weet
+            //System.out.println(new_weets[k].getId());
+            //System.out.println("Before return trend:" + new_weets[k].getMessage());
+            String trend = returnTrend(new_weets[k].getMessage().toLowerCase());
+            //System.out.println("After return trend: " + trend);
+            // There is a new # need to process
+            if (trend != ""){
+              //System.out.println("inside trend");
+              // Calls the insertTrend method in the linked list and passes in the message and the date weeted
+              trending.addTrend(trend,new_weets[k].getDateWeeted());
+              //System.out.println("Number of occurrences " + trending.getOccurrences(trend));
+              //trending.printList();
+            }
+            k++;
+          }
+          i++;
+        }
+
+        //System.out.println("first: " + trending.getFirst());
+        // At this point we have a linked list of trending hashtag topics and we need the top ten. (including nulls)
+        String [] trends =  trending.getTop();
+        int j=0;
+        System.out.println("---");
+        while (j<trends.length){
+          System.out.println(trends[j]);
+          j++;
+        }
+        System.out.println("---");
+        //return trending.getTop();
+        return trends;
+
+    }
+
+
+
+    // This method returns the trend from the message, or a blank string if there isn't a hashtag
+    public String returnTrend(String message){
+      // Remove whitespace
+      message = message.replaceAll(" ","");
+      // Check if there is a hashtag somewhere within the string
+      int index = message.indexOf("#");
+      // Returns the index of the hashtag, or -1 if not in there
+      if (index != -1){
+        return message.substring(index);
+      }else{
+        return "";
+      }
+    }
+
+
+    /*
+    getWeets, getWeetsByUser, getWeetsContaining, getWeetsOn and getWeetsBefore were all almost identical in their functionality
+    Each one iterated through the hashmap, and returned all users that matched some specificed search criteria.
+    The only thing that differed was the if statement that was used as a filter.
+    Therefore, this function generalises this process, and avoids repetitive code.
+    The choice parameter dictates the mode selected
+    1: getUsers (so no criteria)
+    2: getWeetsByUser (so a user parameter)
+    3: getUsersContaining (so a string parameter)
+    4: getWeetsOn (so a Date Parameter)
+    5: getUsersJoinedBefore (so a date parameter)
+    */
+    public Weet [] search (String query, Date dateBefore, User usr, int choice){
+      // Sets the searchIndex var to 0, so it can be increased for every element added to the user array
+      this.searchIndex=0;
+      // This stores the locations in the hash table that actually have values stores in them
+      // Stops us checking entries that are empty
+      int [] locations = hashTable.getArray();
+      Weet [] weets;
+      // If getUsers is called, all elements are returned so the array is initialised to the size of the hash map ( to save computational
+      // power constantly resizing).
+      if (choice ==1){
+        weets = new Weet [getSize()];
+      }// Else, we set the array to something small to save space, but can be increased if and when required
+      else{
+        weets = new Weet [10];
+      }
+
+      // This variable holds the index in the array we are going to add our new element to
+      int index =0;
+
+      // We now need to check every linked list at index i from locations
+      int i =0;
+      while (locations[i]!=-1){
+        // The index at location[i] contains a pointer to a hash table linked list.
+        // We need to visit this list and get the elements stored there.
+        Weet [] new_weets = hashTable.returnAll(locations[i]);
+        // returnAll returns all weets at that index in the linked list
+        // This cannot be null as it was taken from the array locations
+        // Index variable for new_weets
+        int k =0;
+        // While there are still elements in the new_weets array
+        while (k<new_weets.length){
+          if (choice == 1){
+            // getweets (so all elements are added)
+            weets[index] = new_weets[k];
+            index++;
+          }// Either 2 or 3. Both may need the resize method called
+          else{
+            // Check the array isn't full
+            if (weets[weets.length -1]!=null){
+              // Call resise method
+              weets = resize(weets);
+            }
+            // Now we switch choice, and select the if statement we need
+            switch (choice){
+              // getWeetsByUser
+              case 2:
+                int id = new_weets[k].getUserId();
+                if (id == usr.getId()){
+                  weets[index] = new_weets[k];
+                  index++;
+                }
+                break;
+              // getWeetsContaining
+              case 3:
+                query = query.toLowerCase();
+                // Gets the message of the weet in lower case
+                String name = new_weets[k].getMessage().toLowerCase();
+                // Checks whether the name contains the search query term
+                if (name.indexOf(query)!=-1){
+                  // It does, so we add to our list of weets
+                  weets[index] = new_weets[k];
+                  index++;
+                }
+                break;
+              // getWeetsOn
+              case 4:
+                // Therefore, if the year, months and day elements of both dates are equal then the weet needs to be added to the users
+                Date new_weet = new_weets[k].getDateWeeted();
+                if (new_weet.getYear() == dateBefore.getYear() && new_weet.getMonth() == dateBefore.getMonth() && new_weet.getDate()==dateBefore.getDate()){
+                  weets[index] = new_weets[k];
+                  index++;
+                }
+                break;
+              // getWeetsBefore
+              case 5:
+                // Checks if the weet has a date before the parameter passed in
+                if (new_weets[k].getDateWeeted().before(dateBefore)){
+                  // Date was before, and so needs to be added to the array
+                  weets[index] = new_weets[k];
+                  index++;
+                }
+                break;
+              }
+          }
+          k++;
+        }
+        i++;
+      }
+      this.searchIndex = index;
+      weets = shrink(weets);
+      QuickSort quickSort = new QuickSort();
+      return quickSort.sort(weets, 0, weets.length-1);
+    }
+
+
+
+    public Weet[] resize(Weet [] weets){
+      Weet [] new_weets = new Weet [weets.length*2];
+      for (int i=0; i<weets.length; i++){
+        new_weets[i] = weets[i];
+      }
+      return new_weets;
+    }
+
+
+
+
+        // This class is a quick sort
+        class QuickSort {
+            protected Weet [] weets;
+
+            // This is an implementation of the quicksort algorithm. It will take an unordered list of weets and sort them by their dates.
+            // I chose quicksort over mergesort for its reduced memory requirements, as mergesort has a space complexity of O(2n)
+            public Weet [] sort (Weet [] weets, int start, int end ){
+                // While the length of the sublist is still greater than 0
+                if (start<end){
+                  // We need to partition the list (partition returns the index of the split point)
+                  int split = partition (weets, start, end);
+                  //System.out.println("split "+split);
+                  //System.out.println("sort 1; start end " + start +" "+ (split-1));
+                  sort (weets, start, split-1);
+                  //System.out.println("sort 2; start end " + (split+1) +" "+ end);
+                  sort (weets, split +1, end);
+                }
+                return weets;
+            }
+
+            private int partition (Weet [] weets, int start, int end){
+              Weet pivot = weets[start];
+              // These are the pointers that will be used to partition the list
+              int leftMark = start + 1;
+              int rightMark = end;
+              // Acts as a boolean flag
+              Boolean done = false;
+              // Used in a lot of conditions, so less power to define once instead of retrieving each time
+              Date date = pivot.getDateWeeted();
+              while (done == false ){
+                // We check every element at position leftMark and compare it against the current value in rightMark, until either the pointers cross over,
+                // or the value in leftMark is older than that in RightMark, and so they need to be swapped over.
+                while ((leftMark <= rightMark) && (weets[leftMark].getDateWeeted().after(date) || weets[leftMark].getDateWeeted().equals(date) ) ){
+                  leftMark ++;
+                  //System.out.println("leftmarker");
+                }
+                // Now we move the right marker done, until either the pointers swap, or we reach an element more recent than right marker (which will later then need
+                // to be swapped )
+                while ( (rightMark >= leftMark) && (weets[rightMark].getDateWeeted().before(date))){
+                  rightMark --;
+                  //System.out.println("rightmarker");
+                }
+                // Now either the pointers have crossed over, or we need to swap elements
+                // Checks if pointers have swapped
+                if (rightMark < leftMark){
+                  // The pointers have swapped and so the list is ordered
+                  done = true;
+                  //System.out.println("done");
+                }// We need to swap the elements
+                else {
+                  //System.out.println("swap");
+                  Weet temp = weets [leftMark];
+                  weets [leftMark] = weets [rightMark];
+                  weets [rightMark] = temp;
+                }
+              }
+
+              // Now the list is positioned, but we need to swap the pivot with the element currently at position rightMark (as left marker went to the other
+              //side of left marker, and so holds the last element sequentially that is less than the pivot (the start element))
+              Weet temp = weets [start];
+              weets[start] = weets[rightMark];
+              weets[rightMark] = temp;
+              // Return the split point (where all elements to LHS are smaller, and RHS are bigger)
+              return rightMark;
+
+            }
+
+    }
+
+
+        /**
+        * An interface for a generic map, from keys of type K to values of type V.
+        */
+        interface IMap<K,V> {
+
+            // Adds a mapping from key to value to the map
+            public void add(K key, V value);
+
+            // Finds the respective value that is mapped to from key
+            public V get(K key);
+
+
+        }
+
+        // This line allows us to cast our object to type (E) without any warnings.
+        // For further detais, please see: http://docs.oracle.com/javase/1.5.0/docs/api/java/lang/SuppressWarnings.html
+        @SuppressWarnings("unchecked")
+        class HashMap<K extends Comparable<K>,V> implements IMap<K,V> {
+
+            protected KeyValuePairLinkedList[] table;
+            // This stores a list of the hash locations that actually have values stored at them, thus reducing the time it takes to search
+            protected int [] locations;
+            // Stores the index of the next free element to locations
+            private int i =0;
+
+            public HashMap() {
+                /* for very simple hashing, primes reduce collisions */
+                // Choosing 199 as this is large and prime. If to be scaled up to 500,000 weets, we would need a drastically larger table
+                this(199);
+            }
+
+            public HashMap(int size) {
+                table = new KeyValuePairLinkedList[size];
+                initTable();
+                // This initialises all elements in the array to -1 (which will act as the null value)
+                locations = new int[table.length];
+                for (int i=0; i<locations.length; i++){
+                  locations[i]=-1;
+                }
+            }
+
+            // INCOMPLETE.
+            public int find(K key) {
+                int hash = hash(key);
+                // Now we go to the linked list of that hash
+                int location = hash % table.length;
+                ListElement<KeyValuePair<K,V>> temp = table[location].getHead();
+                // temp is an element of the list (or a member of the list element class)
+                // therefore, temp.getvalue returns the value of the linked list element (or the KV pair, not the value of this pair, the entire pair itself)
+                // THEN getKey gets the key from the pair
+                int index = 0;
+                while(temp != null) {
+                    if(temp.getValue().getKey().equals(key)) {
+                        return index;
+                    }
+                    temp = temp.getNext();
+                    index++;
+                }
+                return -1;
+            }
+
+            protected void initTable() {
+                for(int i = 0; i < table.length; i++) {
+                    table[i] = new KeyValuePairLinkedList<>();
+                }
+            }
+
+            protected int hash(K key) {
+                int code = key.hashCode();
+                return code;
+            }
+
+            public int mod(K key){
+              return key.hashCode() % table.length;
+            }
+
+            // Returns whether an element is in the array or not
+            public boolean isElement(int location){
+              for (int i=0; i<locations.length; i++){
+                // The element is part of the array
+                if (locations[i]==location){
+                  return true;
+                }
+              }
+              return false;
+            }
+
+            public void add(K key, V value) {
+                int hash_code = hash(key);
+                int location = hash_code % table.length;
+                // We need to add the new location to the array unless its already in there
+                boolean result = isElement(location);
+                // The element is not in the array
+                if (result == false){
+                  locations[this.i]=location;
+                  this.i++;
+                }
+
+                //System.out.println("Adding " + value + " under key " + key + " at location " + location);
+
+                table[location].add(key,value);
+            }
+
+            public int getSize(){
+              return table.length;
+            }
+
+            // Returns the array locations
+            public int[] getArray(){
+              return this.locations;
+            }
+
+            public V get(K key) {
+              // Gets the hash of the key
+                int hash_code = hash(key);
+                // Location points to the element in the table that the key pointed to (this element is a linked list)
+                int location = hash_code % table.length;
+
+                // ptr stores the first element of the linked list
+                ListElement<KeyValuePair> ptr = table[location].head;
+
+                // table location is the linked list
+                // .get(key) goes through the linked list until the key is reached
+                // Returns the key value pair with the correct key
+                // getValue returns the value from the K,V pair
+                // return (V)table[location].get(key).getValue();
+
+                // This returns the list element of the linked list with the key
+                KeyValuePair value = table[location].get(key);
+                // If this is null, then there is no element.
+                if (value==null){
+                  return null;
+                }else{
+                  return (V)value.getValue();
+                }
+            }
+
+            // Returns all the users at that location in the hashmap
+            public Weet[] returnAll (int location){
+              // We need to return all users at location, and so need an array pf length users[location]
+              return table[location].returnAtLocation();
+            }
+
+
+
+        }
+
+
+        class KeyValuePairLinkedList<K extends Comparable<K>,V> {
+
+            protected ListElement<KeyValuePair<K,V>> head;
+            protected int size;
+
+            public KeyValuePairLinkedList() {
+                head = null;
+                size = 0;
+            }
+
+            public void add(K key, V value) {
+                this.add(new KeyValuePair<K,V>(key,value));
+            }
+
+            public void add(KeyValuePair<K,V> kvp) {
+                ListElement<KeyValuePair<K,V>> new_element =
+                        new ListElement<>(kvp);
+                new_element.setNext(head);
+                head = new_element;
+                this.size++;
+            }
+
+
+            public int size() {
+                return this.size;
+            }
+
+            public ListElement<KeyValuePair<K,V>> getHead() {
+                return head;
+            }
+
+            public KeyValuePair<K,V> get(K key) {
+                ListElement<KeyValuePair<K,V>> temp = head;
+                // temp is an element of the list (or a member of the list element class)
+                // therefore, temp.getvalue returns the value of the linked list element (or the KV pair, not the value of this pair, the entire pair itself)
+                // THEN getKey gets the key from the pair
+                while(temp != null) {
+                    if(temp.getValue().getKey().equals(key)) {
+                        return temp.getValue();
+                    }
+
+                    temp = temp.getNext();
+                }
+
+                return null;
+            }
+
+            public Weet [] returnAtLocation(){
+              ListElement<KeyValuePair<K,V>> temp = head;
+              Weet [] weets = new Weet [size()];
+              int i =0;
+              while(temp != null) {
+                  weets [i] = (Weet) temp.getValue().getValue();
+                  i++;
+                  temp = temp.getNext();
+              }
+
+              return weets;
+            }
+
+
+        }
+
+
+
+        class ListElement<E> {
+            private final E value;
+            private ListElement<E> next;
+            private ListElement<E> prev;
+
+            public ListElement(E value) {
+                this.value = value;
+            }
+
+            public E getValue() {
+                return this.value;
+            }
+
+            public ListElement<E> getNext() {
+                return this.next;
+            }
+
+            public ListElement<E> getPrev() {
+                return this.prev;
+            }
+
+            public void setNext(ListElement<E> e) {
+                this.next = e;
+            }
+
+            public void setPrev(ListElement<E> e) {
+                this.prev = e;
+            }
+
+        }
+
+
+
+        class KeyValuePair<K extends Comparable<K>,V> implements Comparable<KeyValuePair<K,V>> {
+
+            protected K key;
+            protected V value;
+            //protected User value;
+
+            public KeyValuePair(K k, V v) {
+                key = k;
+                value = v;
+            }
+
+            public K getKey() {
+                return key;
+            }
+
+            public V getValue() {
+                return value;
+            }
+
+            public int compareTo(KeyValuePair<K,V> o) {
+                return o.getKey().compareTo(this.getKey());
+            }
+        }
+
+        // Acts as an object to store the hashtag, the number of occurences and the most recent date
+        class Triple {
+          protected String hashtag;
+          protected int occurrences;
+          protected Date date;
+
+          public Triple (String message, int occurred, Date dateWeeted){
+            this.hashtag = message;
+            this.occurrences=occurred;
+            this.date=dateWeeted;
+          }
+
+          public String getHashtag (){
+            return hashtag;
+          }
+
+          public int getOccurrences (){
+            return occurrences;
+          }
+
+          public Date getDateWeeted(){
+            return date;
+          }
+
+          public void setHashtag(String message){
+            hashtag = message;
+          }
+
+          public void setOccurrences (int occurred){
+            occurrences = occurred;
+          }
+
+          public void setDateWeeted(Date dateWeeted){
+            date = dateWeeted;
+          }
+
+          public void increment(){
+            occurrences++;
+          }
+
+          public void compareDates(Date date){
+            if (date.after(this.date)){
+              this.date=date;
+            }
+          }
+
+
+
+
+        }
+
+        class TrendingLinkedList {
+
+            // Stores the biggest element in the list
+            protected ListElement<Triple> head;
+            // Stores the last element in the list
+            protected ListElement<Triple> tail;
+            protected int size;
+
+            public TrendingLinkedList(){
+              head = null;
+              tail = null;
+              size =0;
+            }
+
+            // Adds new data to the linked list. If this is a new element, then it is added, else it is updated
+            public void addTrend(String hashtag, Date date){
+              System.out.println("adding element: "+hashtag);
+              // If size is 0, then there are no elements
+              if (this.size ==0){
+                ListElement<Triple> new_element = new ListElement<Triple>(new Triple(hashtag, 1,date));
+                head = new_element;
+                this.size++;
+              }// If the length is >0, then there must be some other elements in the list
+              else {
+                // We need to check whether the element is already in the list, and so we need to simply update the element, or if there is no
+                // current element, and so we need to create one.
+                ListElement <Triple> temp = head;
+                Boolean isIn = false;
+                while (true){
+                  // The current element is the hashtag we're trying to find
+                  if (temp.getValue().getHashtag().equals(hashtag)){
+                    // We need to increment the number of occurrences there are, and then adjust the pointers if neccessary
+                    System.out.println("increment with " + hashtag);
+                    increment(temp, date);
+                    isIn = true;
+                    break;
+                  }
+                  // We want to keep going until we reach the end of the linked list
+                  // However, we want temp to keep pointing to the last element, so we don't set it to getNext unless
+                  // we know that there is an element to set it equal to
+                  if (temp.getNext()==null){
+                    break;
+                  }else{
+                    temp = temp.getNext();
+                  }
+                }
+                // If isIn == False, then we need to add the element
+                if (isIn == false){
+                  System.out.println("adding to the end with "+hashtag);
+                  // The element needs to be added to the end. The last element in the list is equal to temp
+                  ListElement<Triple> new_element = new ListElement<Triple>(new Triple(hashtag, 1, date));
+                  // Sets the last element to point to the new one
+                  temp.setNext(new_element);
+                  // Sets the new element to point to the previous end
+                  new_element.setPrev(temp);
+                  // Sets tail to point to the new element (as its the end of the list )
+                  tail = new_element;
+                  this.size++;
+                  // Now, it will be equal on number of occurrences to all others with only one occurrence.
+                  // However, it may have a more recent date, and so needs to be bubbled up
+                  moveLeft(new_element);
+                }
+
+              }
+            }
+
+            // This function updates the current linked list element
+            private void increment (ListElement <Triple> element, Date date){
+              // We increment the number of followers
+              element.getValue().increment();
+              // We check the date to see if its bigger
+              element.getValue().compareDates(date);
+
+              // Now we need to readjust our positioning in the linked list
+              moveLeft(element);
+            }
+
+            // This function takes an element and moves it left as far as it can go
+            private void moveLeft (ListElement<Triple> element){
+              System.out.println("move left");
+              ListElement<Triple> temp = element.getPrev();
+              // First we compare on number of followers
+              while (temp !=null && element.getValue().getOccurrences()>temp.getValue().getOccurrences() ){
+                // So our current element has more occurrences than the next one
+                System.out.println("compare on followers");
+                temp=temp.getPrev();
+              }
+              // Now our element has the same amount of occurrences as the element at temp
+              // Now we compare on dates (there is however the issue that an element can have less foccurrences than temp, but is bigger than all otherss with the same
+              // number as it. This would mean it breaks out of the above loop, but now gets compared on dates, even though it should not be )
+              while (temp!= null && element.getValue().getDateWeeted().after(temp.getValue().getDateWeeted()) && temp.getValue().getOccurrences()==element.getValue().getOccurrences() ){
+                // The date of our element is more recent than that of the element at temp
+                temp=temp.getPrev();
+                System.out.println("compare on date");
+              }
+
+              // Now temp holds the element directly bigger than us, or is null because we have reached the start
+              // of the list.
+
+              // We first check whether we've even advanced
+              if (element.getPrev()!=temp){
+
+                  if (temp == null){
+                    //System.out.println("add to head ");
+
+                    // This adjusts the pointers of the two elements currently on either side of 'element'
+                    ListElement<Triple> tempAhead = element.getPrev();
+                    ListElement<Triple> tempBehind = element.getNext();
+
+                    tempAhead.setNext(tempBehind);
+                    // tempBehind can be the last element in the list so can be null
+
+                    if (tempBehind!=null){
+                      tempBehind.setPrev(tempAhead);
+                    }
+
+                    // Then we need to set the new element as the head
+
+                    // Sets the previous of the old head to point to our new elem
+                    head.setPrev(element);
+
+                    // Sets the next pointer to the old front of the list
+                    element.setNext(head);
+                    // Clears any existing previous pointer
+                    element.setPrev(null);
+                    // Sets head to our new element
+                    head = element;
+                  }// The new element is not at the front of the list.
+                  else {
+                    System.out.println("add normally");
+                    // We need to adjust the pointers
+                    // Temp holds the next biggest. This means we need to insert our element between temp and the next smallest.
+                    // However, we THEN need to rearrange the pointers either side of our element, to essentially 'cut' it out, and to ensure there are no duplicates
+
+                    // This deals with the elements either side of our current position
+                    ListElement<Triple> tempAhead = element.getPrev();
+                    ListElement<Triple> tempBehind = element.getNext();
+
+                    // By setting them to each other, we cut out our element (who's pointers technically still point to them)
+                    tempAhead.setNext(tempBehind);
+                    // If last element in list, this is null
+                    if (tempBehind != null){
+                      tempBehind.setPrev(tempAhead);
+                    }
+
+                    // Now we need to insert our element
+                    // tempAhead is the bigger element
+                    tempAhead = temp;
+                    tempBehind = tempAhead.getNext();
+
+                    // We insert element between them
+                    tempAhead.setNext(element);
+                    tempBehind.setPrev(element);
+                    element.setPrev(tempAhead);
+                    element.setNext(tempBehind);
+                  }
+
+                  }else{
+                    System.out.println("didn't move");
+                  }
+
+            }
+
+            // This returns an array of the users, ordered by the number of their followers
+            public String [] getTop(){
+              String [] trending = new String[10];
+              int i=0;
+              ListElement<Triple> temp = head;
+              while (temp!= null && i<10){
+                trending[i]= temp.getValue().getHashtag();
+                i++;
+                temp= temp.getNext();
+              }
+              return trending;
+            }
+
+            public void printAll(){
+              ListElement<Triple> temp = head;
+              int i =0;
+              while (temp!=null){
+                System.out.print("" + temp.getValue().getHashtag()+"(" +temp.getValue().getOccurrences() +")");
+                i++;
+                temp=temp.getNext();
+              }
+            }
+
+          }
+
+
+
+
+
+
+
+
+}
