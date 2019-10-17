@@ -1,1 +1,6 @@
-I had to improve my controller further
+I had to improve my controller further:
+Explorer 1: Depth first search of a tree, including backtracking
+Explorer 2: Had a refined memory, only storing necessary junctions that led to the goal
+Explorer 3: Tackled mazes with a singe loop, and then multiple.
+Grand Finale: Used a stack to store the path to the goal, so that in subsequent runs the controller
+could navigate directly to the end node
