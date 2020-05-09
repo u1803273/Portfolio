@@ -25,28 +25,25 @@ function Snake() {
     this.tail[this.total - 1] =
       { x: this.x, y: this.y };
 
+
     this.x += this.xSpeed;
     this.y += this.ySpeed;
 
 
     if (this.x >= canvas.width) {
       dead = true;
-      this.x = 0;
     }
 
     if (this.y > canvas.height) {
       dead=true;
-      this.y = 0;
     }
 
     if (this.x < 0) {
       dead=true;
-      this.x = canvas.width;
     }
 
     if (this.y < 0) {
       dead=true;
-      this.y = canvas.height;
     }
   }
 
@@ -90,18 +87,15 @@ function Snake() {
         this.y === this.tail[i].y) {
         this.total = 0;
         this.tail = [];
+        dead=true;
       }
     }
   }
 
   // Checks if the coordinates are in the snake
   this.isTail = function(x,y){
-    console.log("tail length: "+this.tail.length);
     for(let i=0;i<this.tail.length;i++){
-      console.log("i: "+i);
-      console.log("--- x: "+this.tail[i].x+" y: "+this.tail[i].y);
       if(this.tail[i].x==x && this.tail[i].y == y){
-        alert("hit");
         return true;
       }
     }
@@ -109,4 +103,16 @@ function Snake() {
 
   }
 
+  // Updates the game board with the information about the snake's tail
+  this.addTail = function(){
+    for(let i=0;i<this.tail.length;i++){
+      board[this.tail[i].x/scale][this.tail[i].y/scale].valid = false;
+    }
+  }
+
+  this.printTail = function(){
+    for(let i=0;i<this.tail.length;i++){
+      console.log(this.tail[i].x+" "+this.tail[i].y);
+    }
+  }
 }
