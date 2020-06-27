@@ -22,5 +22,3 @@ void main(){
 
 }
 
-
-///////////// WE NEED TO DECREMENT EMPTY SQUARE /////////////////
